@@ -3,6 +3,7 @@ import { captureTerminalLines } from "./terminal-capture.js";
 import { TerminalOutputCoalescer } from "./terminal-output-coalescer.js";
 import type { TerminalSession, TerminalStateSnapshotOptions } from "./terminal.js";
 import type {
+  TerminalKillResult,
   TerminalWorkerRequest,
   TerminalWorkerStateResult,
   TerminalWorkerToParentMessage,
@@ -267,18 +268,26 @@ async function handleRequest(message: TerminalWorkerRequest): Promise<void> {
     }
 
     case "killTerminal": {
+      // Sampled before the kill, while the session still exists: the parent
+      // needs to know whether a terminalExit is still coming for this terminal.
+      const result: TerminalKillResult = {
+        hadSession: manager.getTerminal(message.terminalId) !== undefined,
+      };
       manager.killTerminal(message.terminalId);
       // Removal is owned by session.onExit -> terminalExit; the parent mirror
       // clears contribution and emits terminalsChanged from that single path.
       clearTerminalSubscriptions(message.terminalId);
-      sendToParent({ type: "response", requestId: message.requestId, ok: true });
+      sendToParent({ type: "response", requestId: message.requestId, ok: true, result });
       return;
     }
 
     case "killTerminalAndWait": {
+      const result: TerminalKillResult = {
+        hadSession: manager.getTerminal(message.terminalId) !== undefined,
+      };
       await manager.killTerminalAndWait(message.terminalId, message.options);
       clearTerminalSubscriptions(message.terminalId);
-      sendToParent({ type: "response", requestId: message.requestId, ok: true });
+      sendToParent({ type: "response", requestId: message.requestId, ok: true, result });
       return;
     }
 

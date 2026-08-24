@@ -26,6 +26,7 @@ import type {
   TerminalsChangedListener,
 } from "./terminal-manager.js";
 import type {
+  TerminalKillResult,
   TerminalWorkerRequest,
   TerminalWorkerResponse,
   TerminalWorkerToParentMessage,
@@ -35,6 +36,14 @@ import type {
 } from "./terminal-worker-protocol.js";
 
 const REQUEST_TIMEOUT_MS = 10000;
+
+// Exit info for a terminal the worker can no longer report on, so the parent
+// mirror settles it without a terminalExit event carrying a real cause.
+const UNREPORTED_EXIT_INFO: TerminalExitInfo = {
+  exitCode: null,
+  signal: null,
+  lastOutputLines: [],
+};
 
 type RequiredWorkerTerminalInfo = WorkerTerminalInfo & { workspaceId: string };
 
@@ -377,17 +386,20 @@ export function createWorkerTerminalManager(
         return record.exitInfo;
       },
       kill(): void {
-        sendBestEffortRequest({ type: "killTerminal", terminalId: record.info.id });
+        killTerminalWithoutWaiting(record.info.id);
       },
       killAndWait(options?: {
         gracefulTimeoutMs?: number;
         forceTimeoutMs?: number;
       }): Promise<void> {
-        return sendRequest({
-          type: "killTerminalAndWait",
-          terminalId: record.info.id,
-          ...(options ? { options } : {}),
-        }).then(() => undefined);
+        return sendKillRequest(
+          {
+            type: "killTerminalAndWait",
+            terminalId: record.info.id,
+            ...(options ? { options } : {}),
+          },
+          record.info.id,
+        );
       },
     };
 
@@ -434,20 +446,20 @@ export function createWorkerTerminalManager(
     }
   }
 
-  function handleTerminalExitEvent(
-    message: Extract<TerminalWorkerToParentMessage, { type: "terminalExit" }>,
-  ): void {
-    const record = recordsById.get(message.terminalId);
+  // No-ops when the record is already gone, so the worker's terminalExit and a
+  // parent-side settle for the same terminal stay single-shot.
+  function finalizeTerminalExit(terminalId: string, info: TerminalExitInfo): void {
+    const record = recordsById.get(terminalId);
     if (!record) {
       return;
     }
-    record.exitInfo = message.info;
+    record.exitInfo = info;
     for (const listener of Array.from(record.exitListeners)) {
-      listener(message.info);
+      listener(info);
     }
     record.exitListeners.clear();
     const previousBucket = deriveTerminalActivityStatusBucket(record.activity);
-    const removedRecord = removeRecord(message.terminalId);
+    const removedRecord = removeRecord(terminalId);
     if (previousBucket !== null && removedRecord) {
       emitTerminalWorkspaceContributionChanged({
         terminalId: removedRecord.info.id,
@@ -459,6 +471,12 @@ export function createWorkerTerminalManager(
       cwd: record.info.cwd,
       terminals: listTerminalItemsForCwd(record.info.cwd),
     });
+  }
+
+  function handleTerminalExitEvent(
+    message: Extract<TerminalWorkerToParentMessage, { type: "terminalExit" }>,
+  ): void {
+    finalizeTerminalExit(message.terminalId, message.info);
   }
 
   function handleTerminalTitleChangeEvent(
@@ -646,6 +664,35 @@ export function createWorkerTerminalManager(
     });
   }
 
+  // The worker owns removal through terminalExit, so a kill it cannot act on
+  // would leave the mirror holding a terminal no client can ever close. Settle
+  // it here when the answer says no exit event is coming: the worker had no
+  // session, or the request itself failed and that channel is gone.
+  async function sendKillRequest(
+    input: TerminalWorkerRequestInput,
+    terminalId: string,
+  ): Promise<void> {
+    let killResult: TerminalKillResult;
+    try {
+      killResult = (await sendRequest(input)) as TerminalKillResult;
+    } catch (error) {
+      // A dead worker, a timeout, or a failed IPC send: the exit event cannot
+      // arrive through the channel that just failed either.
+      finalizeTerminalExit(terminalId, UNREPORTED_EXIT_INFO);
+      throw error;
+    }
+    if (!killResult.hadSession) {
+      finalizeTerminalExit(terminalId, UNREPORTED_EXIT_INFO);
+    }
+  }
+
+  function killTerminalWithoutWaiting(terminalId: string): void {
+    void sendKillRequest({ type: "killTerminal", terminalId }, terminalId).catch(() => {
+      // Kill is synchronous in the public interface. The mirror is already
+      // settled; worker failures surface through killTerminalAndWait.
+    });
+  }
+
   return {
     async getTerminals(
       cwd: string,
@@ -780,20 +827,21 @@ export function createWorkerTerminalManager(
     },
 
     killTerminal(id: string): void {
-      void sendRequest({ type: "killTerminal", terminalId: id }).catch(() => {
-        // no-op; kill is intentionally best-effort and synchronous in the public interface.
-      });
+      killTerminalWithoutWaiting(id);
     },
 
     async killTerminalAndWait(
       id: string,
       options?: { gracefulTimeoutMs?: number; forceTimeoutMs?: number },
     ): Promise<void> {
-      await sendRequest({
-        type: "killTerminalAndWait",
-        terminalId: id,
-        ...(options ? { options } : {}),
-      });
+      await sendKillRequest(
+        {
+          type: "killTerminalAndWait",
+          terminalId: id,
+          ...(options ? { options } : {}),
+        },
+        id,
+      );
     },
 
     async captureTerminal(

@@ -152,3 +152,10 @@ export type TerminalWorkerCaptureResult = CaptureTerminalLinesResult;
 // The worker fills TerminalStateSnapshot.replayPreamble on getTerminalState so
 // the parent can cache the input-mode preamble instead of re-deriving it.
 export type TerminalWorkerStateResult = TerminalStateSnapshot | null;
+
+// Answer to killTerminal / killTerminalAndWait. `hadSession: false` means the
+// worker had nothing to kill, so no terminalExit event will follow and the
+// parent has to settle its own mirror for that terminal.
+export interface TerminalKillResult {
+  hadSession: boolean;
+}

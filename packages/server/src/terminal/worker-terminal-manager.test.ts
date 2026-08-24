@@ -18,6 +18,7 @@ import {
 import type { TerminalState } from "@getpaseo/protocol/messages";
 import type { TerminalActivity } from "@getpaseo/protocol/terminal-activity";
 import type {
+  TerminalKillResult,
   TerminalWorkerRequest,
   TerminalWorkerToParentMessage,
 } from "./terminal-worker-protocol.js";
@@ -113,6 +114,24 @@ class FakeTerminalWorker extends EventEmitter {
   emitWorkerMessage(message: TerminalWorkerToParentMessage): void {
     this.emit("message", message);
   }
+}
+
+function takeKillRequestId(
+  worker: FakeTerminalWorker,
+  type: "killTerminal" | "killTerminalAndWait",
+  terminalId: string,
+): string {
+  const request = worker.sentMessages.find(
+    (message) => message.type === type && message.terminalId === terminalId,
+  );
+  if (!request) {
+    throw new Error(`${type} request not sent for ${terminalId}`);
+  }
+  return request.requestId;
+}
+
+async function flushWorkerResponses(): Promise<void> {
+  await new Promise((resolve) => setImmediate(resolve));
 }
 
 let manager: TerminalManager | null = null;
@@ -969,4 +988,167 @@ it("removes a killed worker terminal from terminalExit without duplicate snapsho
       workspaceId: "ws-test",
     },
   ]);
+});
+
+it("removes a killed worker terminal when the worker had no session left", async () => {
+  const worker = new FakeTerminalWorker();
+  manager = createWorkerTerminalManager({
+    requestTimeoutMs: 50,
+    forkWorker: () => worker,
+  });
+
+  worker.emitWorkerMessage({
+    type: "terminalCreated",
+    terminal: {
+      id: "terminal-a",
+      name: "Shell",
+      cwd: "/workspace",
+      workspaceId: "ws-test",
+      activity: { state: "working", changedAt: 1000 },
+    },
+    state: createTerminalState(),
+  });
+
+  const snapshots: Array<{ cwd: string; terminalIds: string[] }> = [];
+  manager.subscribeTerminalsChanged((event) => {
+    snapshots.push({ cwd: event.cwd, terminalIds: event.terminals.map((terminal) => terminal.id) });
+  });
+  const contributions: TerminalWorkspaceContributionChangedEvent[] = [];
+  manager.subscribeTerminalWorkspaceContributionChanged((event) => {
+    contributions.push(event);
+  });
+
+  manager.killTerminal("terminal-a");
+  const requestId = takeKillRequestId(worker, "killTerminal", "terminal-a");
+  const result: TerminalKillResult = { hadSession: false };
+  worker.emitWorkerMessage({ type: "response", requestId, ok: true, result });
+  await flushWorkerResponses();
+
+  expect(manager.getTerminal("terminal-a")).toBeUndefined();
+  expect(await manager.getTerminals("/workspace")).toEqual([]);
+  expect(snapshots).toEqual([{ cwd: "/workspace", terminalIds: [] }]);
+  expect(contributions).toEqual([
+    {
+      terminalId: "terminal-a",
+      cwd: "/workspace",
+      workspaceId: "ws-test",
+    },
+  ]);
+});
+
+it("removes a killed worker terminal when the worker process is already gone", async () => {
+  const worker = new FakeTerminalWorker();
+  manager = createWorkerTerminalManager({
+    requestTimeoutMs: 50,
+    forkWorker: () => worker,
+  });
+
+  worker.emitWorkerMessage({
+    type: "terminalCreated",
+    terminal: {
+      id: "terminal-a",
+      name: "Shell",
+      cwd: "/workspace",
+      workspaceId: "ws-test",
+      activity: null,
+    },
+    state: createTerminalState(),
+  });
+
+  const snapshots: Array<{ cwd: string; terminalIds: string[] }> = [];
+  manager.subscribeTerminalsChanged((event) => {
+    snapshots.push({ cwd: event.cwd, terminalIds: event.terminals.map((terminal) => terminal.id) });
+  });
+
+  worker.kill();
+  manager.killTerminal("terminal-a");
+  await flushWorkerResponses();
+
+  expect(manager.getTerminal("terminal-a")).toBeUndefined();
+  expect(await manager.getTerminals("/workspace")).toEqual([]);
+  expect(snapshots).toEqual([{ cwd: "/workspace", terminalIds: [] }]);
+  expect(worker.sentMessages).toEqual([]);
+});
+
+it("resolves killTerminalAndWait and removes the record when the worker had no session left", async () => {
+  const worker = new FakeTerminalWorker();
+  manager = createWorkerTerminalManager({
+    requestTimeoutMs: 50,
+    forkWorker: () => worker,
+  });
+
+  worker.emitWorkerMessage({
+    type: "terminalCreated",
+    terminal: {
+      id: "terminal-a",
+      name: "Shell",
+      cwd: "/workspace",
+      workspaceId: "ws-test",
+      activity: null,
+    },
+    state: createTerminalState(),
+  });
+
+  const snapshots: Array<{ cwd: string; terminalIds: string[] }> = [];
+  manager.subscribeTerminalsChanged((event) => {
+    snapshots.push({ cwd: event.cwd, terminalIds: event.terminals.map((terminal) => terminal.id) });
+  });
+
+  const killed = manager.killTerminalAndWait("terminal-a");
+  const requestId = takeKillRequestId(worker, "killTerminalAndWait", "terminal-a");
+  const result: TerminalKillResult = { hadSession: false };
+  worker.emitWorkerMessage({ type: "response", requestId, ok: true, result });
+
+  await expect(killed).resolves.toBeUndefined();
+  expect(manager.getTerminal("terminal-a")).toBeUndefined();
+  expect(await manager.getTerminals("/workspace")).toEqual([]);
+  expect(snapshots).toEqual([{ cwd: "/workspace", terminalIds: [] }]);
+});
+
+it("keeps a killed worker terminal until the worker reports its exit", async () => {
+  const worker = new FakeTerminalWorker();
+  manager = createWorkerTerminalManager({
+    requestTimeoutMs: 50,
+    forkWorker: () => worker,
+  });
+
+  worker.emitWorkerMessage({
+    type: "terminalCreated",
+    terminal: {
+      id: "terminal-a",
+      name: "Shell",
+      cwd: "/workspace",
+      workspaceId: "ws-test",
+      activity: null,
+    },
+    state: createTerminalState(),
+  });
+
+  const snapshots: Array<{ cwd: string; terminalIds: string[] }> = [];
+  manager.subscribeTerminalsChanged((event) => {
+    snapshots.push({ cwd: event.cwd, terminalIds: event.terminals.map((terminal) => terminal.id) });
+  });
+
+  manager.killTerminal("terminal-a");
+  const requestId = takeKillRequestId(worker, "killTerminal", "terminal-a");
+  const result: TerminalKillResult = { hadSession: true };
+  worker.emitWorkerMessage({ type: "response", requestId, ok: true, result });
+  await flushWorkerResponses();
+
+  const stillListed = await manager.getTerminals("/workspace");
+  expect(stillListed.map((terminal) => terminal.id)).toEqual(["terminal-a"]);
+  expect(snapshots).toEqual([]);
+
+  worker.emitWorkerMessage({
+    type: "terminalExit",
+    terminalId: "terminal-a",
+    info: {
+      exitCode: 0,
+      signal: null,
+      lastOutputLines: [],
+    },
+  });
+
+  expect(manager.getTerminal("terminal-a")).toBeUndefined();
+  expect(snapshots).toEqual([{ cwd: "/workspace", terminalIds: [] }]);
 });
