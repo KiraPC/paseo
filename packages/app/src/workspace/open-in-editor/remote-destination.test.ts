@@ -145,4 +145,16 @@ describe("saveEditorRemoteDestination", () => {
 
     expect(store.values.has(DESTINATION_KEY)).toBe(false);
   });
+
+  it("rejects when the store rejects, so the caller cannot publish an unwritten value", async () => {
+    const store = new MemoryStore();
+    store.setItem = async () => {
+      throw new Error("quota exceeded");
+    };
+
+    await expect(
+      saveEditorRemoteDestination("srv-1", { kind: "ssh", host: "dev" }, store),
+    ).rejects.toThrow("quota exceeded");
+    expect(store.values.has(DESTINATION_KEY)).toBe(false);
+  });
 });

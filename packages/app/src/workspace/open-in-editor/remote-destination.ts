@@ -144,8 +144,11 @@ export function useEditorRemoteDestination(serverId: string): EditorRemoteDestin
     async (destination: RemoteDestination | null) => {
       const parsed = destination ? RemoteDestinationSchema.safeParse(destination) : null;
       const stored = parsed?.success ? parsed.data : null;
-      queryClient.setQueryData(queryKey(normalizedServerId), stored);
+      // Persist before publishing. Updating the cache first would leave every
+      // useDesktopOpenExecution consumer on a value that was never written, for the rest of
+      // the session, whenever storage rejects.
       await saveEditorRemoteDestination(normalizedServerId, stored);
+      queryClient.setQueryData(queryKey(normalizedServerId), stored);
     },
     [normalizedServerId, queryClient],
   );
