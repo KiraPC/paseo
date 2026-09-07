@@ -17,7 +17,7 @@ function launchArgs(input: EditorTargetLaunchInput): string[] {
 
 export const kiroTarget: EditorTarget = {
   id: "kiro",
-  remoteDestinationKinds: [],
+  remoteDestinationKinds: () => [],
   async describe() {
     return {
       id: this.id,

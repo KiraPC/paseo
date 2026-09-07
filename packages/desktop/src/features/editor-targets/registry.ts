@@ -63,7 +63,7 @@ export async function listAvailableEditorTargets(
     if (await target.isInstalled(runtime)) {
       descriptors.push({
         ...(await target.describe(runtime)),
-        remoteDestinationKinds: target.remoteDestinationKinds,
+        remoteDestinationKinds: target.remoteDestinationKinds(runtime),
       });
     }
   }
@@ -88,7 +88,10 @@ export async function openEditorTarget(
   // Remote paths live on the daemon machine, so this process can only check their shape.
   const remoteDestination = input.remoteDestination;
   const isRemote = remoteDestination !== undefined;
-  if (remoteDestination && !target.remoteDestinationKinds.includes(remoteDestination.kind)) {
+  if (
+    remoteDestination &&
+    !target.remoteDestinationKinds(runtime).includes(remoteDestination.kind)
+  ) {
     const descriptor = await target.describe(runtime);
     throw new Error(
       `Editor target cannot open a ${remoteDestination.kind} remote workspace: ${descriptor.label}`,

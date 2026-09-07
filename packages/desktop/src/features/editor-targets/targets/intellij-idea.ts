@@ -4,7 +4,7 @@ const COMMANDS = ["idea", "idea64"] as const;
 
 export const intellijIdeaTarget: EditorTarget = {
   id: "intellij-idea",
-  remoteDestinationKinds: [],
+  remoteDestinationKinds: () => [],
   async describe() {
     return {
       id: this.id,

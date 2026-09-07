@@ -1,4 +1,5 @@
 import type { EditorTarget, EditorTargetRuntime } from "../target.js";
+import { cliRemoteDestinationKinds } from "../remote.js";
 import { vscodeLaunchArgs } from "./vscode-launch.js";
 
 function commands(runtime: EditorTargetRuntime): string[] {
@@ -26,7 +27,7 @@ function commands(runtime: EditorTargetRuntime): string[] {
 
 export const cursorTarget: EditorTarget = {
   id: "cursor",
-  remoteDestinationKinds: ["ssh"],
+  remoteDestinationKinds: (runtime) => cliRemoteDestinationKinds(runtime, commands(runtime)),
   async describe(runtime) {
     return {
       id: this.id,

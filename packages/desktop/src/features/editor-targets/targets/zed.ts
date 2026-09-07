@@ -1,5 +1,5 @@
 import type { EditorTarget, EditorTargetLaunchInput, RemoteDestination } from "../target.js";
-import { encodeRemotePath } from "./remote-path.js";
+import { cliRemoteDestinationKinds, encodeRemotePath } from "../remote.js";
 
 const COMMANDS = ["zed", "zeditor"] as const;
 
@@ -35,7 +35,7 @@ function launchArgs(input: EditorTargetLaunchInput): string[] {
 
 export const zedTarget: EditorTarget = {
   id: "zed",
-  remoteDestinationKinds: ["ssh"],
+  remoteDestinationKinds: (runtime) => cliRemoteDestinationKinds(runtime, COMMANDS),
   async describe(runtime) {
     return { id: this.id, label: "Zed", kind: "editor", icon: await runtime.loadIcon("zed.png") };
   },

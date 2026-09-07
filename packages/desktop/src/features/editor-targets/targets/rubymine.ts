@@ -4,7 +4,7 @@ const COMMANDS = ["rubymine", "rubymine64"] as const;
 
 export const rubymineTarget: EditorTarget = {
   id: "rubymine",
-  remoteDestinationKinds: [],
+  remoteDestinationKinds: () => [],
   async describe() {
     return {
       id: this.id,

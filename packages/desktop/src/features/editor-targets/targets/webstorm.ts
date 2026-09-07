@@ -4,7 +4,7 @@ const COMMANDS = ["webstorm", "webstorm64"] as const;
 
 export const webstormTarget: EditorTarget = {
   id: "webstorm",
-  remoteDestinationKinds: [],
+  remoteDestinationKinds: () => [],
   async describe(runtime) {
     return {
       id: this.id,

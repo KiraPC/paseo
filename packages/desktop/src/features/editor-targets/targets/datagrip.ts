@@ -4,7 +4,7 @@ const COMMANDS = ["datagrip", "datagrip64"] as const;
 
 export const datagripTarget: EditorTarget = {
   id: "datagrip",
-  remoteDestinationKinds: [],
+  remoteDestinationKinds: () => [],
   async describe() {
     return {
       id: this.id,

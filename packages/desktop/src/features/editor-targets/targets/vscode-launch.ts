@@ -1,5 +1,5 @@
 import type { EditorTargetLaunchInput, RemoteDestination } from "../target.js";
-import { encodeRemotePath } from "./remote-path.js";
+import { encodeRemotePath } from "../remote.js";
 
 /** Adding a `RemoteDestinationKind` without an authority form here is a compile error. */
 function remoteAuthority(destination: RemoteDestination): string {

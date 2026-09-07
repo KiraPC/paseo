@@ -10,7 +10,7 @@ const launchFileManager: EditorTarget["launch"] = async (input, runtime) => {
 
 export const finderTarget: EditorTarget = {
   id: "finder",
-  remoteDestinationKinds: [],
+  remoteDestinationKinds: () => [],
   async describe(runtime) {
     return {
       id: this.id,
@@ -27,7 +27,7 @@ export const finderTarget: EditorTarget = {
 
 export const explorerTarget: EditorTarget = {
   id: "explorer",
-  remoteDestinationKinds: [],
+  remoteDestinationKinds: () => [],
   async describe() {
     return {
       id: this.id,
@@ -44,7 +44,7 @@ export const explorerTarget: EditorTarget = {
 
 export const fileManagerTarget: EditorTarget = {
   id: "file-manager",
-  remoteDestinationKinds: [],
+  remoteDestinationKinds: () => [],
   async describe() {
     return {
       id: this.id,

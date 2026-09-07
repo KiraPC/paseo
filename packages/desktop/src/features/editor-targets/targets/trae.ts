@@ -17,7 +17,7 @@ function launchArgs(input: EditorTargetLaunchInput): string[] {
 
 export const traeTarget: EditorTarget = {
   id: "trae",
-  remoteDestinationKinds: [],
+  remoteDestinationKinds: () => [],
   async describe() {
     return {
       id: this.id,

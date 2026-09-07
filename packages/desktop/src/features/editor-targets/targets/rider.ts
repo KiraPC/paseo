@@ -4,7 +4,7 @@ const COMMANDS = ["rider", "rider64"] as const;
 
 export const riderTarget: EditorTarget = {
   id: "rider",
-  remoteDestinationKinds: [],
+  remoteDestinationKinds: () => [],
   async describe() {
     return {
       id: this.id,

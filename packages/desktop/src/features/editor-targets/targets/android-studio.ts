@@ -22,7 +22,7 @@ function launchArgs(input: EditorTargetLaunchInput): string[] {
 
 export const androidStudioTarget: EditorTarget = {
   id: "android-studio",
-  remoteDestinationKinds: [],
+  remoteDestinationKinds: () => [],
   async describe(runtime) {
     return {
       id: this.id,

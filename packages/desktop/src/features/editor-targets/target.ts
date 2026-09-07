@@ -58,8 +58,12 @@ export interface EditorTargetRuntime {
 
 export interface EditorTarget {
   readonly id: string;
-  /** Destination kinds `launch` can render. The registry refuses the rest. */
-  readonly remoteDestinationKinds: readonly RemoteDestinationKind[];
+  /**
+   * Destination kinds `launch` can render *right now*. Runtime-derived, not static: a
+   * target whose CLI does not resolve is local-only even when the application is installed.
+   * The registry refuses every other kind.
+   */
+  remoteDestinationKinds(runtime: EditorTargetRuntime): readonly RemoteDestinationKind[];
 
   describe(runtime: EditorTargetRuntime): Promise<EditorTargetDescription>;
   isInstalled(runtime: EditorTargetRuntime): Promise<boolean>;

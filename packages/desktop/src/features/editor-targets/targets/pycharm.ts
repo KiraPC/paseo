@@ -4,7 +4,7 @@ const COMMANDS = ["pycharm", "pycharm64"] as const;
 
 export const pycharmTarget: EditorTarget = {
   id: "pycharm",
-  remoteDestinationKinds: [],
+  remoteDestinationKinds: () => [],
   async describe() {
     return {
       id: this.id,

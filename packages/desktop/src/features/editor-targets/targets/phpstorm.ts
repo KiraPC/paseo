@@ -4,7 +4,7 @@ const COMMANDS = ["phpstorm", "phpstorm64"] as const;
 
 export const phpstormTarget: EditorTarget = {
   id: "phpstorm",
-  remoteDestinationKinds: [],
+  remoteDestinationKinds: () => [],
   async describe() {
     return {
       id: this.id,

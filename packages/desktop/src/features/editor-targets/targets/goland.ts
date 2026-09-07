@@ -4,7 +4,7 @@ const COMMANDS = ["goland", "goland64"] as const;
 
 export const golandTarget: EditorTarget = {
   id: "goland",
-  remoteDestinationKinds: [],
+  remoteDestinationKinds: () => [],
   async describe() {
     return {
       id: this.id,

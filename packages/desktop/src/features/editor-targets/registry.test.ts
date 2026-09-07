@@ -305,7 +305,7 @@ describe("editor target registry", () => {
       kind: "file-manager",
       icon: { kind: "symbol", name: "folder" },
     });
-    expect(explorerTarget.remoteDestinationKinds).toEqual([]);
+    expect(explorerTarget.remoteDestinationKinds(runtime)).toEqual([]);
     await explorerTarget.launch({ workspacePath: "C:/repo" }, runtime);
     await explorerTarget.launch(
       { workspacePath: "C:/repo", filePath: "C:/repo/src/app.ts" },
@@ -450,6 +450,47 @@ describe("editor target registry", () => {
     ]);
   });
 
+  it("does not offer SSH for an installed app whose CLI is missing, but still offers it locally", async () => {
+    // The common macOS shape: VS Code.app present, `code` never installed into PATH.
+    const runtime = new FakeEditorTargets("darwin");
+    runtime.installMacApplication("Visual Studio Code");
+    runtime.addPath("/repo");
+
+    const [descriptor] = await listAvailableEditorTargets(runtime, [vscodeTarget]);
+
+    expect(descriptor?.id).toBe("vscode");
+    expect(descriptor?.remoteDestinationKinds).toEqual([]);
+
+    await openEditorTarget({ editorId: "vscode", workspacePath: "/repo" }, runtime, [vscodeTarget]);
+    expect(runtime.openedMacApplications).toEqual([
+      { applicationName: "Visual Studio Code", paths: ["/repo"] },
+    ]);
+  });
+
+  it("offers SSH for the same app once its CLI resolves", async () => {
+    const runtime = new FakeEditorTargets("darwin");
+    runtime.installMacApplication("Visual Studio Code");
+    runtime.installCommand("code");
+
+    const [descriptor] = await listAvailableEditorTargets(runtime, [vscodeTarget]);
+
+    expect(descriptor?.remoteDestinationKinds).toEqual(["ssh"]);
+  });
+
+  it("refuses a remote open when the app is installed but its CLI is not", async () => {
+    const runtime = new FakeEditorTargets("darwin");
+    runtime.installMacApplication("Visual Studio Code");
+
+    await expect(
+      openEditorTarget(
+        { editorId: "vscode", workspacePath: "/repo", remoteDestination: sshDestination },
+        runtime,
+        [vscodeTarget],
+      ),
+    ).rejects.toThrow("Editor target cannot open a ssh remote workspace: VS Code");
+    expect(runtime.openedMacApplications).toEqual([]);
+  });
+
   it("refuses a remote open on a target that cannot reach another machine", async () => {
     const runtime = new FakeEditorTargets();
     runtime.addPath("/repo");
@@ -464,16 +505,12 @@ describe("editor target registry", () => {
     expect(runtime.launches).toEqual([]);
   });
 
-  it("refuses a remote open when only the macOS application is installed", async () => {
+  it("refuses a direct remote launch that bypasses the registry's capability check", async () => {
     const runtime = new FakeEditorTargets("darwin");
     runtime.installMacApplication("Visual Studio Code");
 
     await expect(
-      openEditorTarget(
-        { editorId: "vscode", workspacePath: "/repo", remoteDestination: sshDestination },
-        runtime,
-        [vscodeTarget],
-      ),
+      vscodeTarget.launch({ workspacePath: "/repo", remoteDestination: sshDestination }, runtime),
     ).rejects.toThrow("VS Code command line tools are required to open a remote workspace");
     expect(runtime.openedMacApplications).toEqual([]);
   });

@@ -4,7 +4,7 @@ const COMMANDS = ["clion", "clion64"] as const;
 
 export const clionTarget: EditorTarget = {
   id: "clion",
-  remoteDestinationKinds: [],
+  remoteDestinationKinds: () => [],
   async describe() {
     return {
       id: this.id,
