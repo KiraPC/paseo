@@ -515,6 +515,45 @@ describe("editor target registry", () => {
     expect(runtime.openedMacApplications).toEqual([]);
   });
 
+  it("judges a remote path by POSIX rules, not by this desktop's platform", async () => {
+    // A macOS or Linux client must not reject a POSIX daemon path, and must not accept a
+    // Windows one it has no way to render. Windows daemons stay out of scope.
+    const runtime = new FakeEditorTargets("darwin");
+    runtime.installCommand("code");
+
+    await openEditorTarget(
+      { editorId: "vscode", workspacePath: "/home/user/repo", remoteDestination: sshDestination },
+      runtime,
+      [vscodeTarget],
+    );
+    expect(runtime.launches).toEqual([
+      {
+        command: "/bin/code",
+        args: ["--folder-uri", "vscode-remote://ssh-remote+dev/home/user/repo"],
+      },
+    ]);
+
+    await expect(
+      openEditorTarget(
+        { editorId: "vscode", workspacePath: "C:/repo", remoteDestination: sshDestination },
+        runtime,
+        [vscodeTarget],
+      ),
+    ).rejects.toThrow("Editor target workspace path must be an absolute path");
+  });
+
+  it("keeps judging local paths by this desktop's platform", async () => {
+    const runtime = new FakeEditorTargets("win32");
+    runtime.installCommand("code", "C:/Editors/code.cmd");
+    runtime.addPath("C:/repo");
+
+    await openEditorTarget({ editorId: "vscode", workspacePath: "C:/repo" }, runtime, [
+      vscodeTarget,
+    ]);
+
+    expect(runtime.launches).toEqual([{ command: "C:/Editors/code.cmd", args: ["C:/repo"] }]);
+  });
+
   it("keeps requiring a local path to exist when no destination is given", async () => {
     const runtime = new FakeEditorTargets();
     runtime.installCommand("code");

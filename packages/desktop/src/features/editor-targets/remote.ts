@@ -1,15 +1,27 @@
+import { posix } from "node:path";
+
 import type { EditorTargetRuntime, RemoteDestinationKind } from "./target.js";
 
 const SSH_ONLY: readonly RemoteDestinationKind[] = ["ssh"];
 const LOCAL_ONLY: readonly RemoteDestinationKind[] = [];
 
 /**
+ * A remote path describes the daemon machine's filesystem, so it is judged by POSIX rules
+ * rather than this desktop's. `path.isAbsolute` follows the platform it runs on, which would
+ * make a macOS or Linux client reject a path its own daemon never produced.
+ */
+export function isAbsoluteRemotePath(path: string): boolean {
+  return posix.isAbsolute(path);
+}
+
+/**
  * Percent-encode a POSIX path for a remote URI. Each segment is encoded separately so the
  * separators and the leading slash survive, and so a space or `&` in a directory name never
- * reaches a shell as itself.
+ * reaches a shell as itself. Explicitly POSIX: the separator is the daemon's, not this
+ * machine's, and remote paths are validated as POSIX before they get here.
  */
 export function encodeRemotePath(path: string): string {
-  return path.split("/").map(encodeURIComponent).join("/");
+  return path.split(posix.sep).map(encodeURIComponent).join(posix.sep);
 }
 
 /**

@@ -1,3 +1,4 @@
+import { isAbsoluteRemotePath } from "./remote.js";
 import type {
   EditorTarget,
   EditorTargetDescriptor,
@@ -79,6 +80,18 @@ export function getEditorTarget(
   return target;
 }
 
+/** A remote path belongs to the daemon machine; a local one belongs to this machine. */
+function isAbsoluteLaunchPath(input: {
+  path: string;
+  isRemote: boolean;
+  runtime: EditorTargetRuntime;
+}): boolean {
+  if (input.isRemote) {
+    return isAbsoluteRemotePath(input.path);
+  }
+  return input.runtime.isAbsolutePath(input.path);
+}
+
 export async function openEditorTarget(
   input: EditorTargetLaunchInput & { editorId: string },
   runtime: EditorTargetRuntime,
@@ -97,14 +110,14 @@ export async function openEditorTarget(
       `Editor target cannot open a ${remoteDestination.kind} remote workspace: ${descriptor.label}`,
     );
   }
-  if (!runtime.isAbsolutePath(input.workspacePath)) {
+  if (!isAbsoluteLaunchPath({ path: input.workspacePath, isRemote, runtime })) {
     throw new Error("Editor target workspace path must be an absolute path");
   }
   if (!isRemote && !runtime.pathExists(input.workspacePath)) {
     throw new Error(`Path does not exist: ${input.workspacePath}`);
   }
   if (input.filePath) {
-    if (!runtime.isAbsolutePath(input.filePath)) {
+    if (!isAbsoluteLaunchPath({ path: input.filePath, isRemote, runtime })) {
       throw new Error("Editor target file path must be an absolute path");
     }
     if (!isRemote && !runtime.pathExists(input.filePath)) {
