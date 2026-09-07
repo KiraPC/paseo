@@ -1,29 +1,28 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const storage = vi.hoisted(() => {
-  const entries = new Map<string, string>();
-  return {
-    entries,
-    default: {
-      getItem: async (key: string) => entries.get(key) ?? null,
-      setItem: async (key: string, value: string) => {
-        entries.set(key, value);
-      },
-      removeItem: async (key: string) => {
-        entries.delete(key);
-      },
-    },
-  };
-});
-
-vi.mock("@react-native-async-storage/async-storage", () => ({ default: storage.default }));
-
+import { describe, expect, it } from "vitest";
 import {
   isSshHost,
   loadEditorRemoteDestination,
+  saveEditorRemoteDestination,
   sshDestination,
   suggestSshHost,
+  type EditorRemoteDestinationStore,
 } from "./remote-destination";
+
+class MemoryStore implements EditorRemoteDestinationStore {
+  readonly values = new Map<string, string>();
+
+  async getItem(key: string): Promise<string | null> {
+    return this.values.get(key) ?? null;
+  }
+
+  async setItem(key: string, value: string): Promise<void> {
+    this.values.set(key, value);
+  }
+
+  async removeItem(key: string): Promise<void> {
+    this.values.delete(key);
+  }
+}
 
 const DESTINATION_KEY = "@paseo:editor-remote-destination:srv-1";
 const LEGACY_AUTHORITY_KEY = "@paseo:editor-remote-authority:srv-1";
@@ -83,48 +82,67 @@ describe("suggestSshHost", () => {
 });
 
 describe("loadEditorRemoteDestination", () => {
-  beforeEach(() => {
-    storage.entries.clear();
-  });
-
   it("reads a stored destination", async () => {
-    storage.entries.set(DESTINATION_KEY, JSON.stringify({ kind: "ssh", host: "dev" }));
+    const store = new MemoryStore();
+    store.values.set(DESTINATION_KEY, JSON.stringify({ kind: "ssh", host: "dev" }));
 
-    await expect(loadEditorRemoteDestination("srv-1")).resolves.toEqual({
+    await expect(loadEditorRemoteDestination("srv-1", store)).resolves.toEqual({
       kind: "ssh",
       host: "dev",
     });
   });
 
   it("returns nothing when the host has never been configured", async () => {
-    await expect(loadEditorRemoteDestination("srv-1")).resolves.toBeNull();
+    await expect(loadEditorRemoteDestination("srv-1", new MemoryStore())).resolves.toBeNull();
   });
 
   it("migrates a value stored as a VS Code authority instead of dropping it", async () => {
-    storage.entries.set(LEGACY_AUTHORITY_KEY, "ssh-remote+dev");
+    const store = new MemoryStore();
+    store.values.set(LEGACY_AUTHORITY_KEY, "ssh-remote+dev");
 
-    await expect(loadEditorRemoteDestination("srv-1")).resolves.toEqual({
+    await expect(loadEditorRemoteDestination("srv-1", store)).resolves.toEqual({
       kind: "ssh",
       host: "dev",
     });
-    expect(storage.entries.get(DESTINATION_KEY)).toBe('{"kind":"ssh","host":"dev"}');
-    expect(storage.entries.has(LEGACY_AUTHORITY_KEY)).toBe(false);
+    expect(store.values.get(DESTINATION_KEY)).toBe('{"kind":"ssh","host":"dev"}');
+    expect(store.values.has(LEGACY_AUTHORITY_KEY)).toBe(false);
   });
 
   it("prefers a stored destination over a stale legacy authority", async () => {
-    storage.entries.set(DESTINATION_KEY, JSON.stringify({ kind: "ssh", host: "new-box" }));
-    storage.entries.set(LEGACY_AUTHORITY_KEY, "ssh-remote+old-box");
+    const store = new MemoryStore();
+    store.values.set(DESTINATION_KEY, JSON.stringify({ kind: "ssh", host: "new-box" }));
+    store.values.set(LEGACY_AUTHORITY_KEY, "ssh-remote+old-box");
 
-    await expect(loadEditorRemoteDestination("srv-1")).resolves.toEqual({
+    await expect(loadEditorRemoteDestination("srv-1", store)).resolves.toEqual({
       kind: "ssh",
       host: "new-box",
     });
   });
 
   it("clears a legacy value it cannot migrate", async () => {
-    storage.entries.set(LEGACY_AUTHORITY_KEY, "wsl+Ubuntu-22.04");
+    const store = new MemoryStore();
+    store.values.set(LEGACY_AUTHORITY_KEY, "wsl+Ubuntu-22.04");
 
-    await expect(loadEditorRemoteDestination("srv-1")).resolves.toBeNull();
-    expect(storage.entries.has(LEGACY_AUTHORITY_KEY)).toBe(false);
+    await expect(loadEditorRemoteDestination("srv-1", store)).resolves.toBeNull();
+    expect(store.values.has(LEGACY_AUTHORITY_KEY)).toBe(false);
+  });
+});
+
+describe("saveEditorRemoteDestination", () => {
+  it("writes the destination under this host's key", async () => {
+    const store = new MemoryStore();
+
+    await saveEditorRemoteDestination("srv-1", { kind: "ssh", host: "dev" }, store);
+
+    expect(store.values.get(DESTINATION_KEY)).toBe('{"kind":"ssh","host":"dev"}');
+  });
+
+  it("removes the key when the destination is cleared", async () => {
+    const store = new MemoryStore();
+    store.values.set(DESTINATION_KEY, JSON.stringify({ kind: "ssh", host: "dev" }));
+
+    await saveEditorRemoteDestination("srv-1", null, store);
+
+    expect(store.values.has(DESTINATION_KEY)).toBe(false);
   });
 });

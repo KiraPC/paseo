@@ -4,7 +4,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { useFetchQuery } from "@/data/query";
 import { useLocalDaemonServerIdState } from "@/hooks/use-is-local-daemon";
-import { readValidatedJson, readValidatedString } from "@/storage/validated-storage";
+import {
+  readValidatedJson,
+  readValidatedString,
+  type ValidatedStorage,
+} from "@/storage/validated-storage";
 import {
   LOCAL_DESKTOP_OPEN_EXECUTION,
   REMOTE_UNCONFIGURED_DESKTOP_OPEN_EXECUTION,
@@ -48,6 +52,15 @@ function queryKey(serverId: string): readonly string[] {
   return ["editor-remote-destination", serverId];
 }
 
+/**
+ * The device-local key/value store this setting lives in. Injected rather than imported so
+ * the read, write and migration paths can be exercised against an in-memory fake instead of
+ * a mocked AsyncStorage module (docs/testing.md).
+ */
+export interface EditorRemoteDestinationStore extends ValidatedStorage {
+  setItem(key: string, value: string): Promise<void>;
+}
+
 export function isSshHost(value: string): boolean {
   return SshHostSchema.safeParse(value).success;
 }
@@ -69,31 +82,44 @@ export function suggestSshHost(hostname: string | null): string {
   return isSshHost(trimmed) ? trimmed : "";
 }
 
-async function migrateLegacyAuthority(serverId: string): Promise<RemoteDestination | null> {
+async function migrateLegacyAuthority(
+  serverId: string,
+  store: EditorRemoteDestinationStore,
+): Promise<RemoteDestination | null> {
   const legacyKey = legacyAuthorityStorageKey(serverId);
-  const authority = await readValidatedString(AsyncStorage, legacyKey, z.string().trim().min(1));
+  const authority = await readValidatedString(store, legacyKey, z.string().trim().min(1));
   if (!authority) {
     return null;
   }
-  await AsyncStorage.removeItem(legacyKey);
+  await store.removeItem(legacyKey);
   const destination = sshDestination(authority);
   if (!destination) {
     return null;
   }
-  await AsyncStorage.setItem(storageKey(serverId), JSON.stringify(destination));
+  await store.setItem(storageKey(serverId), JSON.stringify(destination));
   return destination;
 }
 
 /** The read path, including the one-way migration off the pre-release authority key. */
 export async function loadEditorRemoteDestination(
   serverId: string,
+  store: EditorRemoteDestinationStore = AsyncStorage,
 ): Promise<RemoteDestination | null> {
-  const stored = await readValidatedJson(
-    AsyncStorage,
-    storageKey(serverId),
-    RemoteDestinationSchema,
-  );
-  return stored ?? (await migrateLegacyAuthority(serverId));
+  const stored = await readValidatedJson(store, storageKey(serverId), RemoteDestinationSchema);
+  return stored ?? (await migrateLegacyAuthority(serverId, store));
+}
+
+/** The write path. Clearing removes the key rather than storing an empty destination. */
+export async function saveEditorRemoteDestination(
+  serverId: string,
+  destination: RemoteDestination | null,
+  store: EditorRemoteDestinationStore = AsyncStorage,
+): Promise<void> {
+  if (destination) {
+    await store.setItem(storageKey(serverId), JSON.stringify(destination));
+    return;
+  }
+  await store.removeItem(storageKey(serverId));
 }
 
 interface EditorRemoteDestination {
@@ -119,11 +145,7 @@ export function useEditorRemoteDestination(serverId: string): EditorRemoteDestin
       const parsed = destination ? RemoteDestinationSchema.safeParse(destination) : null;
       const stored = parsed?.success ? parsed.data : null;
       queryClient.setQueryData(queryKey(normalizedServerId), stored);
-      if (stored) {
-        await AsyncStorage.setItem(storageKey(normalizedServerId), JSON.stringify(stored));
-        return;
-      }
-      await AsyncStorage.removeItem(storageKey(normalizedServerId));
+      await saveEditorRemoteDestination(normalizedServerId, stored);
     },
     [normalizedServerId, queryClient],
   );
